@@ -1,10 +1,9 @@
 use std::fs::File;
-use std::io::{self, Error};
+use std::io;
 use std::path::Path;
 use zip::read::ZipArchive;
 use unrar::Archive as RarArchive;
 use sevenz_rust::decompress_file;
-use unrar::archive::OpenArchive;
 
 fn extract_zip(archive_path: &str, output_dir: &str) -> io::Result<()> {
     let file = File::open(archive_path)?;
@@ -27,9 +26,13 @@ fn extract_zip(archive_path: &str, output_dir: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn extract_rar(archive_path: &str, output_dir: &str) -> Result<OpenArchive, Error> {
-    let archive = RarArchive::new(archive_path.to_string());
-    archive.extract_to(output_dir.to_string()).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+fn extract_rar(archive_path: &str, output_dir: &str) -> io::Result<()> {
+    RarArchive::new(archive_path.to_string())
+        .extract_to(output_dir.to_string())
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        .process()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    Ok(())
 }
 
 
@@ -46,7 +49,12 @@ fn main() {
     let archive_path = &args[1];
     let output_dir = &args[2];
 
-    match archive_path.split('.').last() {
+    let ext = Path::new(archive_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase());
+
+    match ext.as_deref() {
         Some("zip") => {
             if let Err(e) = extract_zip(archive_path, output_dir) {
                 eprintln!("解压ZIP文件时出错: {}", e);
