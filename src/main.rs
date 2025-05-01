@@ -92,7 +92,7 @@ fn get_existing_drives() -> Vec<char> {
     let mask = unsafe { GetLogicalDrives() };
     let mut drives = vec![];
 
-    for i in 6..26 { // 从 G (第7个字母) 开始
+    for i in 4..26 { // 从 D (第4个字母) 开始
         if (mask >> i) & 1 == 1 {
             let letter = (b'A' + i) as char;
             drives.push(letter);
