@@ -20,35 +20,26 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### 安装依赖
 ```sh
-cargo add zip unrar sevenz-rust
+cargo install
 ```
 
 ## 编译
 ```sh
 cargo build --release
 ```
-可执行文件位于 `target/release/ExtractTool.exe`。
+可执行文件位于 `target/release/GameEffectTool.exe`。
 
 ## 使用方法
+### 方法一：直接运行
+1. 将压缩包与程序放在同一目录下
+2. 运行程序
+
+### 方法二：指定压缩包
+1. 将压缩包与程序放在同一目录下
+2. 添加参数启动
 ```sh
-ExtractTool.exe <压缩文件路径> <输出目录>
+GameEffectTool.exe -p <当前路径下压缩包名称> -d <解压目录>
 ```
-
-### 示例
-- **解压 ZIP 文件**
-  ```sh
-  ExtractTool.exe example.zip output_folder
-  ```
-
-- **解压 RAR 文件**
-  ```sh
-  ExtractTool.exe example.rar output_folder
-  ```
-
-- **解压 7Z 文件**
-  ```sh
-  ExtractTool.exe example.7z output_folder
-  ```
 
 ## 兼容性
 - 适用于 Windows 。
