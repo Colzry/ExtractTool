@@ -1,3 +1,4 @@
+use clap::Parser;
 use std::fs::File;
 use std::io::Write;
 use chrono::Local;
@@ -7,6 +8,24 @@ use zip::read::ZipArchive;
 use unrar::Archive as RarArchive;
 use sevenz_rust::decompress_file;
 use winapi::um::fileapi::GetLogicalDrives;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Args {
+    /// 要解压的压缩包名（可多个）：WindowsClient 或 Windows
+    #[arg(short = 'p', long)]
+    package: Vec<String>,
+
+    /// 目标解压路径（可选，仅对一个压缩包生效，需和 -p 一起使用指定压缩包名）
+    #[arg(short = 'd', long)]
+    directory: Option<String>,
+}
+
+// 全局压缩包名（不区分大小写）
+const VALID_NAMES: [&str; 2] = ["WindowsClient", "Windows"];
+
+// 支持的压缩包扩展名
+const VALID_EXTS: [&str; 3] = ["zip", "rar", "7z"];
 
 fn extract_zip(archive_path: &str, output_dir: &str) -> io::Result<()> {
     let file = File::open(archive_path)?;
@@ -45,21 +64,24 @@ fn extract_7z(archive_path: &str, output_dir: &str) -> io::Result<()> {
 
 fn find_archives_in_current_dir() -> Vec<(String, String)> {
     let mut result = vec![];
+
     if let Ok(entries) = fs::read_dir(".") {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(file_name) = path.file_stem().and_then(|s| s.to_str()) {
-                if file_name.eq_ignore_ascii_case("WindowsClient") || file_name.eq_ignore_ascii_case("Windows") {
-                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        let ext_lc = ext.to_lowercase();
-                        if ext_lc == "zip" || ext_lc == "rar" || ext_lc == "7z" {
-                            result.push((file_name.to_string(), path.to_string_lossy().to_string()));
-                        }
-                    }
+
+            let file_stem = path.file_stem().and_then(|s| s.to_str());
+            let extension = path.extension().and_then(|e| e.to_str());
+
+            if let (Some(name), Some(ext)) = (file_stem, extension) {
+                if VALID_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name)) &&
+                    VALID_EXTS.contains(&ext.to_lowercase().as_str())
+                {
+                    result.push((name.to_string(), path.to_string_lossy().to_string()));
                 }
             }
         }
     }
+
     result
 }
 fn get_existing_drives() -> Vec<char> {
@@ -99,30 +121,54 @@ fn write_error(message: &str) {
 }
 
 fn main() {
-    let archives = find_archives_in_current_dir();
+    let args = Args::parse();
 
-    if archives.is_empty() {
-        write_error("未在当前目录找到名为 WindowsClient 或 Windows 的压缩文件（zip/rar/7z）");
+    if args.directory.is_some() && args.package.len() != 1 {
+        write_error("-d 参数必须与 -p 参数一起使用，且只能指定一个压缩包");
         return;
     }
 
+    let mut archives = find_archives_in_current_dir();
+    if archives.is_empty() {
+        write_error("当前目录下没有任何名为 WindowsClient 或 Windows 的压缩包（zip/rar/7z）");
+        return;
+    }
+
+    if !args.package.is_empty() {
+        // 只保留用户指定的压缩包
+        archives.retain(|(name, _)| {
+            args.package.iter().any(|p| p.eq_ignore_ascii_case(name))
+        });
+
+        if archives.is_empty() {
+            let name_list = VALID_NAMES.join(" 或 ");
+            let ext_list = VALID_EXTS.join("/");
+            write_error(&format!("当前目录下没有任何名为 {} 的压缩包（{}），请检查指定的参数", name_list, ext_list));
+            return;
+        }
+    }
+
     for (file_stem, archive_path) in archives {
-        let target_dirs = get_target_dirs(&file_stem);
+        let target_dirs = if let Some(ref custom_path) = args.directory {
+            vec![PathBuf::from(custom_path)]
+        } else {
+            get_target_dirs(&file_stem)
+        };
 
         if target_dirs.is_empty() {
             let expected_path = match file_stem.as_str() {
                 "WindowsClient" => r"三角洲行动",
                 "Windows" => r"无畏契约",
-                _ => "",
+                _ => "未知",
             };
-            write_error(&format!("未找到 {} 的解压目录，请手动添加参数指定", expected_path));
+            write_error(&format!("未找到 {} 的目标目录用于解压，请使用 -p 指定压缩包，-d 指定解压目录", expected_path));
             continue;
         }
 
         let ext = Path::new(&archive_path)
             .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_lowercase());
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
 
         for target_dir in target_dirs {
             let result = match ext.as_deref() {

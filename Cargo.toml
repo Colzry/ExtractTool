@@ -1,6 +1,6 @@
 [package]
-name = "ExtractTool"
-version = "1.1.0"
+name = "GameEffectTool"
+version = "2.0.0"
 edition = "2021"
 authors = ["Colzry <colzry@outlook.com>"]
 
@@ -11,3 +11,4 @@ unrar = "0.4"
 sevenz-rust = "0.4"
 winapi = { version = "0.3", features = ["fileapi"] }
 chrono = "0.4"
+clap = { version = "4.5", features = ["derive"] }
