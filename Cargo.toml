@@ -1,6 +1,6 @@
 [package]
 name = "ExtractTool"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 authors = ["Colzry <colzry@outlook.com>"]
 
@@ -9,3 +9,5 @@ zip = "0.6"
 flate2 = "1.0"
 unrar = "0.4"
 sevenz-rust = "0.4"
+winapi = { version = "0.3", features = ["fileapi"] }
+chrono = "0.4"
