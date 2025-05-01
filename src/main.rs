@@ -21,7 +21,7 @@ struct Args {
     directory: Option<String>,
 }
 
-// 全局压缩包名（不区分大小写）
+// 全局压缩包名
 const VALID_NAMES: [&str; 2] = ["WindowsClient", "Windows"];
 
 // 支持的压缩包扩展名
@@ -73,8 +73,12 @@ fn find_archives_in_current_dir() -> Vec<(String, String)> {
             let extension = path.extension().and_then(|e| e.to_str());
 
             if let (Some(name), Some(ext)) = (file_stem, extension) {
-                if VALID_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name)) &&
-                    VALID_EXTS.contains(&ext.to_lowercase().as_str())
+                // 将文件名和扩展名转换为小写
+                let name_lc = name.to_lowercase();
+                let ext_lc = ext.to_lowercase();
+
+                if VALID_NAMES.iter().any(|n| n.eq_ignore_ascii_case(&name_lc)) &&
+                    VALID_EXTS.contains(&ext_lc.as_str())
                 {
                     result.push((name.to_string(), path.to_string_lossy().to_string()));
                 }
@@ -130,7 +134,9 @@ fn main() {
 
     let mut archives = find_archives_in_current_dir();
     if archives.is_empty() {
-        write_error("当前目录下没有任何名为 WindowsClient 或 Windows 的压缩包（zip/rar/7z）");
+        let name_list = VALID_NAMES.join("、");
+        let ext_list = VALID_EXTS.join("/");
+        write_error(&format!("当前目录下没有任何名为 {} 的压缩包（{}）", name_list, ext_list));
         return;
     }
 
@@ -141,7 +147,11 @@ fn main() {
         });
 
         if archives.is_empty() {
-            let name_list = VALID_NAMES.join(" 或 ");
+            let name_list = if args.package.len() > 1 {
+                args.package.join("、")
+            } else {
+                args.package[0].clone()
+            };
             let ext_list = VALID_EXTS.join("/");
             write_error(&format!("当前目录下没有任何名为 {} 的压缩包（{}），请检查指定的参数", name_list, ext_list));
             return;
@@ -161,7 +171,7 @@ fn main() {
                 "Windows" => r"无畏契约",
                 _ => "未知",
             };
-            write_error(&format!("未找到 {} 的目标目录用于解压，请使用 -p 指定压缩包，-d 指定解压目录", expected_path));
+            write_error(&format!("未找到 {} 的目标目录用于解压，请使用 -p 指定当前目录下的压缩包名称，-d 指定解压目录", expected_path));
             continue;
         }
 
