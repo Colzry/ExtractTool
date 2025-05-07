@@ -1,6 +1,5 @@
 use clap::Parser;
-use std::fs::File;
-use std::io::Write;
+use std::fs::{File, OpenOptions};
 use chrono::Local;
 use std::{fs, io};
 use std::path::{Path, PathBuf};
@@ -16,7 +15,11 @@ struct Args {
     #[arg(short = 'p', long)]
     package: Vec<String>,
 
-    /// 目标解压路径（可选，仅对一个压缩包生效，需和 -p 一起使用指定压缩包名）
+    /// 指定任意路径的压缩包文件（仅限一个）
+    #[arg(short = 'a', long, conflicts_with = "package", value_name = "ARCHIVE_PATH")]
+    archive: Option<String>,
+
+    /// 目标解压路径（可选，仅对一个压缩包生效，需和 -p 或 -a 一起使用）
     #[arg(short = 'd', long)]
     directory: Option<String>,
 }
@@ -60,6 +63,22 @@ fn extract_rar(archive_path: &str, output_dir: &str) -> io::Result<()> {
 
 fn extract_7z(archive_path: &str, output_dir: &str) -> io::Result<()> {
     decompress_file(archive_path, output_dir).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
+
+fn extract(archive_path: &str, output_dir: &str) -> io::Result<()> {
+    let ext = Path::new(archive_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase());
+    match ext.as_deref() {
+        Some("zip") => extract_zip(archive_path, output_dir),
+        Some("rar") => extract_rar(archive_path, output_dir),
+        Some("7z") => extract_7z(archive_path, output_dir),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("不支持的压缩格式: {:?}", ext),
+        )),
+    }
 }
 
 fn find_archives_in_current_dir() -> Vec<(String, String)> {
@@ -118,82 +137,98 @@ fn get_target_dirs(file_stem: &str) -> Vec<PathBuf> {
 }
 
 fn write_error(message: &str) {
+    use std::io::Write;
     let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    if let Ok(mut file) = File::create("ERROR.txt") {
-        let _ = writeln!(file, "{} {}", now, message);
-    }
+    let log_line = format!("{} {}\n", now, message);
+    // 控制台输出
+    // eprintln!("❌ 错误：{}", log_line.trim_end());
+    // 文件追加写入
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("ERROR.txt")
+        .unwrap_or_else(|_| File::create("ERROR.txt").expect("无法创建日志文件 ERROR.txt"));
+    let _ = file.write_all(log_line.as_bytes());
 }
 
 fn main() {
     let args = Args::parse();
-
-    if args.directory.is_some() && args.package.len() != 1 {
-        write_error("-d 参数必须与 -p 参数一起使用，且只能指定一个压缩包");
+    // 校验参数
+    if args.directory.is_some() && (args.package.len() + args.archive.as_ref().map(|_| 1).unwrap_or(0)) != 1 {
+        write_error("-d 参数必须与 -p 或 -a 参数一起使用，且只能指定一个压缩包");
         return;
     }
-
-    let mut archives = find_archives_in_current_dir();
-    if archives.is_empty() {
-        let name_list = VALID_NAMES.join("、");
-        let ext_list = VALID_EXTS.join("/");
-        write_error(&format!("当前目录下没有任何名为 {} 的压缩包（{}）", name_list, ext_list));
-        return;
-    }
-
+    let mut tasks = vec![];
+    // 处理 -p 参数：从当前目录查找匹配的压缩包
     if !args.package.is_empty() {
-        // 只保留用户指定的压缩包
-        archives.retain(|(name, _)| {
-            args.package.iter().any(|p| p.eq_ignore_ascii_case(name))
-        });
-
-        if archives.is_empty() {
-            let name_list = if args.package.len() > 1 {
-                args.package.join("、")
-            } else {
-                args.package[0].clone()
-            };
-            let ext_list = VALID_EXTS.join("/");
-            write_error(&format!("当前目录下没有任何名为 {} 的压缩包（{}），请检查指定的参数", name_list, ext_list));
+        let archives_in_dir = find_archives_in_current_dir();
+        for name in &args.package {
+            let matched = archives_in_dir.iter()
+                .filter(|(file_stem, _)| file_stem.eq_ignore_ascii_case(name))
+                .collect::<Vec<_>>();
+            if matched.is_empty() {
+                write_error(&format!("未在当前目录下找到名为 {} 的压缩包", name));
+                continue;
+            }
+            for (file_stem, path) in matched {
+                let target_dirs = if let Some(ref dir) = args.directory {
+                    vec![PathBuf::from(dir)]
+                } else {
+                    get_target_dirs(file_stem)
+                };
+                for dir in target_dirs {
+                    tasks.push((path.clone(), dir.display().to_string()));
+                }
+            }
+        }
+    }
+    // 处理 -a 参数：指定任意路径的压缩包
+    if let Some(archive_path) = args.archive.clone() {
+        if args.directory.is_none() {
+            write_error("-a 参数必须搭配 -d 指定目标解压路径");
             return;
         }
-    }
-
-    for (file_stem, archive_path) in archives {
-        let target_dirs = if let Some(ref custom_path) = args.directory {
-            vec![PathBuf::from(custom_path)]
-        } else {
-            get_target_dirs(&file_stem)
-        };
-
-        if target_dirs.is_empty() {
-            let expected_path = match file_stem.as_str() {
-                "WindowsClient" => r"三角洲行动",
-                "Windows" => r"无畏契约",
-                _ => "未知",
-            };
-            write_error(&format!("未找到 {} 的目标目录用于解压，请使用 -p 指定当前目录下的压缩包名称，-d 指定解压目录", expected_path));
-            continue;
+        let target_dir = args.directory.unwrap();
+        // 检查压缩包是否存在
+        let path = Path::new(&archive_path);
+        if !path.exists() {
+            write_error(&format!("压缩包不存在: {}", archive_path));
+            return;
         }
-
-        let ext = Path::new(&archive_path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase());
-
-        for target_dir in target_dirs {
-            let result = match ext.as_deref() {
-                Some("zip") => extract_zip(&archive_path, target_dir.to_str().unwrap()),
-                Some("rar") => extract_rar(&archive_path, target_dir.to_str().unwrap()),
-                Some("7z") => extract_7z(&archive_path, target_dir.to_str().unwrap()),
-                _ => {
-                    write_error(&format!("{} 是不支持的文件格式", archive_path));
-                    continue;
-                }
-            };
-
-            if let Err(e) = result {
-                write_error(&format!("解压失败（{} -> {}）：{}", archive_path, target_dir.display(), e));
+        tasks.push((archive_path, target_dir));
+    }
+    // 默认行为：没有参数时根据当前目录中的压缩包进行解压
+    if args.package.is_empty() && args.archive.is_none() {
+        let archives_in_dir = find_archives_in_current_dir();
+        if archives_in_dir.is_empty() {
+            let name_list = VALID_NAMES.join("、");
+            let ext_list = VALID_EXTS.join("/");
+            write_error(&format!("当前目录下没有任何名为 {} 的压缩包（{}）", name_list, ext_list));
+            return;
+        }
+        for (file_stem, archive_path) in archives_in_dir {
+            let target_dirs = get_target_dirs(&file_stem);
+            if target_dirs.is_empty() {
+                let expected_path = match file_stem.as_str() {
+                    "WindowsClient" => r"三角洲行动",
+                    "Windows" => r"无畏契约",
+                    _ => "未知",
+                };
+                write_error(&format!(
+                    "未找到 {} 的目标目录用于解压，请使用 -p 指定当前目录下的压缩包名称，-d 指定解压目录",
+                    expected_path
+                ));
+                continue;
             }
+            for dir in target_dirs {
+                tasks.push((archive_path.clone(), dir.display().to_string()));
+            }
+        }
+    }
+    // 执行解压任务
+    for (archive_path, target_dir) in tasks {
+        if let Err(e) = extract(&archive_path, &target_dir) {
+            write_error(&format!("解压失败（{} -> {}）：{}", archive_path, target_dir, e));
         }
     }
 }

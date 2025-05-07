@@ -1,14 +1,14 @@
 [package]
 name = "GameEffectTool"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2021"
 authors = ["Colzry <colzry@outlook.com>"]
 
 [dependencies]
-zip = "0.6"
-flate2 = "1.0"
+zip = "2.6.1"
+flate2 = "1.1.1"
 unrar = "0.4"
-sevenz-rust = "0.4"
+sevenz-rust = "0.6.1"
 winapi = { version = "0.3", features = ["fileapi"] }
-chrono = "0.4"
+chrono = "0.4.40"
 clap = { version = "4.5", features = ["derive"] }
